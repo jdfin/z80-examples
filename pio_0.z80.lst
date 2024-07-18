@@ -1,0 +1,110 @@
+0000                          .ORG   0   
+0000   31 00 00               LD   SP,STACK_TOP   
+0003   3E 00                  LD   A,00000000b   ; dirs, all out
+0005   2E 00                  LD   L,00000000b   ; vals
+0007   CD 1B 00               CALL   PIO_INIT   
+000A   3E 00                  LD   A,0x00   ; (7)
+000C   06 19        L0:       LD   B,25   ; (7)
+000E   0E FA        LB:       LD   C,250   ; (7)
+0010   0D           LC:       DEC   C   ; (4)
+0011   20 FD                  JR   NZ,LC   ; (7,12)
+0013   05                     DEC   B   ; (4)
+0014   20 F8                  JR   NZ,LB   ; (7,12)
+0016                          ;*Macro unroll:  PIO_OUT ; (11)
+0016   D3 C0                  OUT   (PIO_DATA_A),A   ; (11)
+0018   3C                     INC   A   ; (4)
+0019   18 F1                  JR   L0   ; (12)
+001B                CTC_0:    EQU   0x40   
+001B                CTC_1:    EQU   0x41   
+001B                CTC_2:    EQU   0x42   
+001B                CTC_3:    EQU   0x43   
+001B                SIO_DATA_A:   EQU   0x80   
+001B                SIO_DATA_B:   EQU   0x81   
+001B                SIO_CTRL_A:   EQU   0x82   
+001B                SIO_CTRL_B:   EQU   0x83   
+001B                PIO_DATA_A:   EQU   0xC0   
+001B                PIO_DATA_B:   EQU   0xC1   
+001B                PIO_CTRL_A:   EQU   0xC2   
+001B                PIO_CTRL_B:   EQU   0xC3   
+001B                VECT_BASE:   EQU   0x7F00   
+001B                RAM_BASE:   EQU   0x8000   
+001B                RAM_SIZE:   EQU   0x8000   
+001B                STACK_TOP:   EQU   (RAM_BASE + RAM_SIZE) & 0xFFFF   
+001B                             ;-----------------------------------------------------------------------------
+001B                             ; Requires:
+001B                             ; PIO_CTRL_A, PIO_DATA_A
+001B                             ; 
+001B                             ; Provides:
+001B                             ; PIO_INIT, PIO_OUT, PIO_IN
+001B                             ;-----------------------------------------------------------------------------
+001B                             ; void PIO_INIT(uint8_t dirs, uint8_t vals)
+001B                             ; dirs is in A, vals is in L
+001B                             ; H is scratch
+001B                             ; dirs is used to set pin direction; 0 is out, 1 is in
+001B                             ; vals is used to set initial values for output pins
+001B                PIO_INIT:      
+001B   67                     LD   H,A   ; stash dir
+001C                             ; --------- set mode: ----1111
+001C                             ; --------- control:  11------
+001C   3E CF                  LD   A,11001111b   
+001E   D3 C2                  OUT   (PIO_CTRL_A),A   
+0020                             ; --------- next byte is direction
+0020   7C                     LD   A,H   
+0021   D3 C2                  OUT   (PIO_CTRL_A),A   
+0023                             ; --------- set initial values
+0023   7D                     LD   A,L   
+0024   D3 C0                  OUT   (PIO_DATA_A),A   
+0026                             ; --------- no interrupts
+0026   3E 07                  LD   A,0x07   
+0028   D3 C2                  OUT   (PIO_CTRL_A),A   
+002A   C9                     RET      
+002B                             ;-----------------------------------------------------------------------------
+002B                             ; void PIO_OUT(uint8_t vals)
+002B                             ; vals is in A
+002B                .macro PIO_OUT,
+002B                 OUT     (PIO_DATA_A),A
+002B                .endm
+002B                 
+002B                             ;-----------------------------------------------------------------------------
+002B                             ; uint8_t PIO_IN()
+002B                             ; vals is returned in A
+002B                .macro PIO_IN,
+002B                 IN      A,(PIO_DATA_A)
+002B                .endm
+002B                 
+002B                             ; C-loop: 250 * 16 = 4000 usec = 4 msec
+002B                             ; B-loop: 25 * 4 msec = 0.1 sec
+
+
+L0:                 000C DEFINED AT LINE 8
+                    > USED AT LINE 16
+LB:                 000E DEFINED AT LINE 9
+                    > USED AT LINE 13
+LC:                 0010 DEFINED AT LINE 10
+                    > USED AT LINE 11
+CTC_0:              0040 DEFINED AT LINE 1 IN system.z80
+CTC_1:              0041 DEFINED AT LINE 2 IN system.z80
+CTC_2:              0042 DEFINED AT LINE 3 IN system.z80
+CTC_3:              0043 DEFINED AT LINE 4 IN system.z80
+SIO_DATA_A:         0080 DEFINED AT LINE 6 IN system.z80
+SIO_DATA_B:         0081 DEFINED AT LINE 7 IN system.z80
+SIO_CTRL_A:         0082 DEFINED AT LINE 8 IN system.z80
+SIO_CTRL_B:         0083 DEFINED AT LINE 9 IN system.z80
+PIO_DATA_A:         00C0 DEFINED AT LINE 11 IN system.z80
+                    > USED AT LINE 35
+                    > USED AT LINE 25 IN pio_poll.z80
+PIO_DATA_B:         00C1 DEFINED AT LINE 12 IN system.z80
+PIO_CTRL_A:         00C2 DEFINED AT LINE 13 IN system.z80
+                    > USED AT LINE 19 IN pio_poll.z80
+                    > USED AT LINE 22 IN pio_poll.z80
+                    > USED AT LINE 28 IN pio_poll.z80
+PIO_CTRL_B:         00C3 DEFINED AT LINE 14 IN system.z80
+VECT_BASE:          7F00 DEFINED AT LINE 16 IN system.z80
+RAM_BASE:           8000 DEFINED AT LINE 17 IN system.z80
+                    > USED AT LINE 19 IN system.z80
+RAM_SIZE:           8000 DEFINED AT LINE 18 IN system.z80
+                    > USED AT LINE 19 IN system.z80
+STACK_TOP:          0000 DEFINED AT LINE 19 IN system.z80
+                    > USED AT LINE 3
+PIO_INIT:           001B DEFINED AT LINE 14 IN pio_poll.z80
+                    > USED AT LINE 6

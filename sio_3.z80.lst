@@ -1,0 +1,162 @@
+0000                          .ORG   0   
+0000   31 00 00               LD   SP,STACK_TOP   
+0003   CD 24 00               CALL   SIO_INIT   
+0006   11 14 00               LD   DE,MSG   
+0009   CD 56 00               CALL   SIO_PUTS   
+000C                             ; echo characters
+000C   CD 5F 00     L0:       CALL   SIO_GETC   
+000F   CD 4B 00               CALL   SIO_PUTC   
+0012   18 F8                  JR   L0   
+0014   48 65 6C 6C 6F 2C 20 77 6F 72 6C 64 21 0D 0A 00 MSG:   DB   "Hello, world!\r\n",0   
+0024                CTC_0:    EQU   0x40   
+0024                CTC_1:    EQU   0x41   
+0024                CTC_2:    EQU   0x42   
+0024                CTC_3:    EQU   0x43   
+0024                SIO_DATA_A:   EQU   0x80   
+0024                SIO_DATA_B:   EQU   0x81   
+0024                SIO_CTRL_A:   EQU   0x82   
+0024                SIO_CTRL_B:   EQU   0x83   
+0024                PIO_DATA_A:   EQU   0xC0   
+0024                PIO_DATA_B:   EQU   0xC1   
+0024                PIO_CTRL_A:   EQU   0xC2   
+0024                PIO_CTRL_B:   EQU   0xC3   
+0024                VECT_BASE:   EQU   0x7F00   
+0024                RAM_BASE:   EQU   0x8000   
+0024                RAM_SIZE:   EQU   0x8000   
+0024                STACK_TOP:   EQU   (RAM_BASE + RAM_SIZE) & 0xFFFF   
+0024                             ;-----------------------------------------------------------------------------
+0024                             ; Requires:
+0024                             ; SIO_CTRL_A, SIO_CTRL_B, SIO_DATA_A, SIO_DATA_B
+0024                             ;-----------------------------------------------------------------------------
+0024                             ; Provides:
+0024                             ; SIO_INIT
+0024                             ; SIO_PUTC
+0024                             ; SIO_PUTS
+0024                             ; SIO_GETC
+0024                             ;-----------------------------------------------------------------------------
+0024                             ; SIO_INIT - initialize SIO
+0024                             ; Initialize channel A (only) for async, polled mode.
+0024                SIO_INIT:      
+0024                             ; reset both channels
+0024   3E 18                  LD   A,0x18   
+0026   D3 82                  OUT   (SIO_CTRL_A),A   
+0028   D3 83                  OUT   (SIO_CTRL_B),A   
+002A                             ; WR4
+002A                             ; 01------ 16x
+002A                             ; 10------ 32x
+002A                             ; 11------ 64x
+002A                             ; ----01-- 1 stop
+002A                             ; ----10-- 1.5 stop
+002A                             ; ----11-- 2 stop
+002A   3E 04                  LD   A,4   
+002C   D3 82                  OUT   (SIO_CTRL_A),A   
+002E   3E 84                  LD   A,10000100b   
+0030   D3 82                  OUT   (SIO_CTRL_A),A   
+0032                             ; 
+0032                             ; WR3
+0032                             ; 11------ rx 8 bits/char
+0032                             ; -------1 rx enable
+0032   3E 03                  LD   A,3   
+0034   D3 82                  OUT   (SIO_CTRL_A),A   
+0036   3E C1                  LD   A,11000001b   
+0038   D3 82                  OUT   (SIO_CTRL_A),A   
+003A                             ; 
+003A                             ; WR5
+003A                             ; -11----- tx 8 bits/chr
+003A                             ; ----1--- tx enable
+003A   3E 05                  LD   A,5   
+003C   D3 82                  OUT   (SIO_CTRL_A),A   
+003E   3E 68                  LD   A,01101000b   
+0040   D3 82                  OUT   (SIO_CTRL_A),A   
+0042                             ; 
+0042                             ; WR1
+0042                             ; ---11--- rx intr on char
+0042                             ; ------1- tx intr enable
+0042   3E 01                  LD   A,1   
+0044   D3 82                  OUT   (SIO_CTRL_A),A   
+0046   3E 00                  LD   A,00000000b   
+0048   D3 82                  OUT   (SIO_CTRL_A),A   
+004A                             ; 
+004A   C9                     RET      
+004B                             ;-----------------------------------------------------------------------------
+004B                             ; SIO_PUTC - send a character
+004B                             ; A: character to send
+004B                             ; B: scratch
+004B   47           SIO_PUTC:   LD   B,A   ; (4) stash character
+004C   DB 82        SIO_PUTC_0:   IN   A,(SIO_CTRL_A)   ; (11)
+004E   CB 57                  BIT   2,A   ; (8)
+0050   28 FA                  JR   Z,SIO_PUTC_0   ; (7,12) wait for tx idle
+0052   78                     LD   A,B   ; (4)
+0053   D3 80                  OUT   (SIO_DATA_A),A   ; (11) send character
+0055   C9                     RET      ; (10)
+0056                             ;-----------------------------------------------------------------------------
+0056                             ; SIO_PUTS - send an EOS-terminated string
+0056                             ; DE: address of the string (modified)
+0056                             ; A: scratch
+0056                             ; B: scratch
+0056   1A           SIO_PUTS:   LD   A,(DE)   
+0057   A7                     AND   A   
+0058   C8                     RET   Z   
+0059   CD 4B 00               CALL   SIO_PUTC   
+005C   13                     INC   DE   
+005D   18 F7                  JR   SIO_PUTS   
+005F                             ;-----------------------------------------------------------------------------
+005F                             ; SIO_GETC - wait for and get next available character
+005F                             ; A: returned character
+005F   DB 82        SIO_GETC:   IN   A,(SIO_CTRL_A)   ; (11)
+0061   CB 47                  BIT   0,A   ; (8)
+0063   28 FA                  JR   Z,SIO_GETC   ; (7,12) wait for character available
+0065   DB 80                  IN   A,(SIO_DATA_A)   ; (11) get character
+0067   C9                     RET      ; (10)
+
+
+L0:                 000C DEFINED AT LINE 10
+                    > USED AT LINE 12
+MSG:                0014 DEFINED AT LINE 14
+                    > USED AT LINE 6
+CTC_0:              0040 DEFINED AT LINE 1 IN system.z80
+CTC_1:              0041 DEFINED AT LINE 2 IN system.z80
+CTC_2:              0042 DEFINED AT LINE 3 IN system.z80
+CTC_3:              0043 DEFINED AT LINE 4 IN system.z80
+SIO_DATA_A:         0080 DEFINED AT LINE 6 IN system.z80
+                    > USED AT LINE 67 IN sio_poll.z80
+                    > USED AT LINE 88 IN sio_poll.z80
+SIO_DATA_B:         0081 DEFINED AT LINE 7 IN system.z80
+SIO_CTRL_A:         0082 DEFINED AT LINE 8 IN system.z80
+                    > USED AT LINE 18 IN sio_poll.z80
+                    > USED AT LINE 28 IN sio_poll.z80
+                    > USED AT LINE 30 IN sio_poll.z80
+                    > USED AT LINE 36 IN sio_poll.z80
+                    > USED AT LINE 38 IN sio_poll.z80
+                    > USED AT LINE 44 IN sio_poll.z80
+                    > USED AT LINE 46 IN sio_poll.z80
+                    > USED AT LINE 52 IN sio_poll.z80
+                    > USED AT LINE 54 IN sio_poll.z80
+                    > USED AT LINE 63 IN sio_poll.z80
+                    > USED AT LINE 85 IN sio_poll.z80
+SIO_CTRL_B:         0083 DEFINED AT LINE 9 IN system.z80
+                    > USED AT LINE 19 IN sio_poll.z80
+PIO_DATA_A:         00C0 DEFINED AT LINE 11 IN system.z80
+PIO_DATA_B:         00C1 DEFINED AT LINE 12 IN system.z80
+PIO_CTRL_A:         00C2 DEFINED AT LINE 13 IN system.z80
+PIO_CTRL_B:         00C3 DEFINED AT LINE 14 IN system.z80
+VECT_BASE:          7F00 DEFINED AT LINE 16 IN system.z80
+RAM_BASE:           8000 DEFINED AT LINE 17 IN system.z80
+                    > USED AT LINE 19 IN system.z80
+RAM_SIZE:           8000 DEFINED AT LINE 18 IN system.z80
+                    > USED AT LINE 19 IN system.z80
+STACK_TOP:          0000 DEFINED AT LINE 19 IN system.z80
+                    > USED AT LINE 3
+SIO_INIT:           0024 DEFINED AT LINE 15 IN sio_poll.z80
+                    > USED AT LINE 4
+SIO_PUTC:           004B DEFINED AT LINE 62 IN sio_poll.z80
+                    > USED AT LINE 11
+                    > USED AT LINE 78 IN sio_poll.z80
+SIO_PUTC_0:         004C DEFINED AT LINE 63 IN sio_poll.z80
+                    > USED AT LINE 65 IN sio_poll.z80
+SIO_PUTS:           0056 DEFINED AT LINE 75 IN sio_poll.z80
+                    > USED AT LINE 7
+                    > USED AT LINE 80 IN sio_poll.z80
+SIO_GETC:           005F DEFINED AT LINE 85 IN sio_poll.z80
+                    > USED AT LINE 10
+                    > USED AT LINE 87 IN sio_poll.z80

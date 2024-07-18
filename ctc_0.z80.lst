@@ -1,0 +1,25 @@
+0000                CTC_0:    EQU   0x40   
+0000                CTC_1:    EQU   0x41   
+0000                CTC_2:    EQU   0x42   
+0000                CTC_3:    EQU   0x43   
+0000                          .ORG   0   
+0000   31 00 00               LD   SP,0   
+0003   CD 08 00               CALL   CTC_INIT   
+0006   18 FE        L0:       JR   L0   
+0008   3E 15        CTC_INIT:   LD   A,0x15   ; no int, timer, ps=16, rising edge, auto start
+000A   D3 42                  OUT   (CTC_2),A   
+000C   3E 7D                  LD   A,125   ; 500 Hz at TO pin
+000E   D3 42                  OUT   (CTC_2),A   
+0010   C9                     RET      
+
+
+CTC_0:              0040 DEFINED AT LINE 1
+CTC_1:              0041 DEFINED AT LINE 2
+CTC_2:              0042 DEFINED AT LINE 3
+                    > USED AT LINE 13
+                    > USED AT LINE 15
+CTC_3:              0043 DEFINED AT LINE 4
+L0:                 0006 DEFINED AT LINE 10
+                    > USED AT LINE 10
+CTC_INIT:           0008 DEFINED AT LINE 12
+                    > USED AT LINE 9

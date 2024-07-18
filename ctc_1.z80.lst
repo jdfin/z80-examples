@@ -1,0 +1,139 @@
+0000                          .ORG   0   
+0000   31 00 00               LD   SP,STACK_TOP   
+0003   ED 5E                  IM   2   ; interrupt mode 2
+0005   3E 7F                  LD   A,msb(VECT_BASE)   
+0007   ED 47                  LD   I,A   
+0009   CD 19 00               CALL   CTC_INIT   
+000C   3E 00                  LD   A,00000000b   ; dirs, all out
+000E   2E 00                  LD   L,00000000b   ; vals
+0010   CD 34 00               CALL   PIO_INIT   ; (A, L)
+0013   3E 00                  LD   A,0   
+0015   FB                     EI      
+0016   76           L0:       HALT      
+0017   18 FD                  JR   L0   
+0019                CTC_INIT:      
+0019                             ; CTC0 contains interrupt vector
+0019   3E 08                  LD   A,lsb(VECT_CTC)   
+001B   D3 40                  OUT   (CTC_0),A   
+001D                             ; CTC2 generates 500 Hz on its TO pin
+001D   3E 15                  LD   A,0x15   ; no intr, timer, ps=16, rising edge, auto start
+001F   D3 42                  OUT   (CTC_2),A   
+0021   3E 7D                  LD   A,125   ; 500 Hz
+0023   D3 42                  OUT   (CTC_2),A   
+0025                             ; CTC3 divides that to generate periodic interrupt
+0025   3E D5                  LD   A,0xD5   ; intr, counter, rising edge, auto start
+0027   D3 43                  OUT   (CTC_3),A   
+0029   3E 64                  LD   A,100   ; 5 Hz
+002B   D3 43                  OUT   (CTC_3),A   
+002D   C9                     RET      
+002E                          ;*Macro unroll: CTC_3_ISR:  PIO_OUT
+002E   D3 C0        CTC_3_ISR:   OUT   (PIO_DATA_A),A   
+0030   3C                     INC   A   
+0031   FB                     EI      
+0032   ED 4D                  RETI      
+0034                CTC_0:    EQU   0x40   
+0034                CTC_1:    EQU   0x41   
+0034                CTC_2:    EQU   0x42   
+0034                CTC_3:    EQU   0x43   
+0034                SIO_DATA_A:   EQU   0x80   
+0034                SIO_DATA_B:   EQU   0x81   
+0034                SIO_CTRL_A:   EQU   0x82   
+0034                SIO_CTRL_B:   EQU   0x83   
+0034                PIO_DATA_A:   EQU   0xC0   
+0034                PIO_DATA_B:   EQU   0xC1   
+0034                PIO_CTRL_A:   EQU   0xC2   
+0034                PIO_CTRL_B:   EQU   0xC3   
+0034                VECT_BASE:   EQU   0x7F00   
+0034                RAM_BASE:   EQU   0x8000   
+0034                RAM_SIZE:   EQU   0x8000   
+0034                STACK_TOP:   EQU   (RAM_BASE + RAM_SIZE) & 0xFFFF   
+0034                             ;-----------------------------------------------------------------------------
+0034                             ; Requires:
+0034                             ; PIO_CTRL_A, PIO_DATA_A
+0034                             ; 
+0034                             ; Provides:
+0034                             ; PIO_INIT, PIO_OUT, PIO_IN
+0034                             ;-----------------------------------------------------------------------------
+0034                             ; void PIO_INIT(uint8_t dirs, uint8_t vals)
+0034                             ; dirs is in A, vals is in L
+0034                             ; H is scratch
+0034                             ; dirs is used to set pin direction; 0 is out, 1 is in
+0034                             ; vals is used to set initial values for output pins
+0034                PIO_INIT:      
+0034   67                     LD   H,A   ; stash dir
+0035                             ; --------- set mode: ----1111
+0035                             ; --------- control:  11------
+0035   3E CF                  LD   A,11001111b   
+0037   D3 C2                  OUT   (PIO_CTRL_A),A   
+0039                             ; --------- next byte is direction
+0039   7C                     LD   A,H   
+003A   D3 C2                  OUT   (PIO_CTRL_A),A   
+003C                             ; --------- set initial values
+003C   7D                     LD   A,L   
+003D   D3 C0                  OUT   (PIO_DATA_A),A   
+003F                             ; --------- no interrupts
+003F   3E 07                  LD   A,0x07   
+0041   D3 C2                  OUT   (PIO_CTRL_A),A   
+0043   C9                     RET      
+0044                             ;-----------------------------------------------------------------------------
+0044                             ; void PIO_OUT(uint8_t vals)
+0044                             ; vals is in A
+0044                .macro PIO_OUT,
+0044                 OUT     (PIO_DATA_A),A
+0044                .endm
+0044                 
+0044                             ;-----------------------------------------------------------------------------
+0044                             ; uint8_t PIO_IN()
+0044                             ; vals is returned in A
+0044                .macro PIO_IN,
+0044                 IN      A,(PIO_DATA_A)
+0044                .endm
+0044                 
+7F00                          .ORG   VECT_BASE   
+7F00   00 00                  DW   0   
+7F02                          ALIGN   8   
+7F08   00 00        VECT_CTC:   DW   0   ; CTC0
+7F0A   00 00                  DW   0   ; CTC1
+7F0C   00 00                  DW   0   ; CTC2
+7F0E   2E 00                  DW   CTC_3_ISR   
+
+
+L0:                 0016 DEFINED AT LINE 13
+                    > USED AT LINE 14
+CTC_INIT:           0019 DEFINED AT LINE 16
+                    > USED AT LINE 7
+CTC_3_ISR:          002E DEFINED AT LINE 35
+                    > USED AT LINE 46
+CTC_0:              0040 DEFINED AT LINE 1 IN system.z80
+                    > USED AT LINE 19
+CTC_1:              0041 DEFINED AT LINE 2 IN system.z80
+CTC_2:              0042 DEFINED AT LINE 3 IN system.z80
+                    > USED AT LINE 22
+                    > USED AT LINE 24
+CTC_3:              0043 DEFINED AT LINE 4 IN system.z80
+                    > USED AT LINE 27
+                    > USED AT LINE 29
+SIO_DATA_A:         0080 DEFINED AT LINE 6 IN system.z80
+SIO_DATA_B:         0081 DEFINED AT LINE 7 IN system.z80
+SIO_CTRL_A:         0082 DEFINED AT LINE 8 IN system.z80
+SIO_CTRL_B:         0083 DEFINED AT LINE 9 IN system.z80
+PIO_DATA_A:         00C0 DEFINED AT LINE 11 IN system.z80
+                    > USED AT LINE 35
+                    > USED AT LINE 25 IN pio_poll.z80
+PIO_DATA_B:         00C1 DEFINED AT LINE 12 IN system.z80
+PIO_CTRL_A:         00C2 DEFINED AT LINE 13 IN system.z80
+                    > USED AT LINE 19 IN pio_poll.z80
+                    > USED AT LINE 22 IN pio_poll.z80
+                    > USED AT LINE 28 IN pio_poll.z80
+PIO_CTRL_B:         00C3 DEFINED AT LINE 14 IN system.z80
+VECT_BASE:          7F00 DEFINED AT LINE 16 IN system.z80
+                    > USED AT LINE 40
+RAM_BASE:           8000 DEFINED AT LINE 17 IN system.z80
+                    > USED AT LINE 19 IN system.z80
+RAM_SIZE:           8000 DEFINED AT LINE 18 IN system.z80
+                    > USED AT LINE 19 IN system.z80
+STACK_TOP:          0000 DEFINED AT LINE 19 IN system.z80
+                    > USED AT LINE 3
+PIO_INIT:           0034 DEFINED AT LINE 14 IN pio_poll.z80
+                    > USED AT LINE 10
+VECT_CTC:           7F08 DEFINED AT LINE 43

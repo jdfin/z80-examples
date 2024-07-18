@@ -1,0 +1,411 @@
+0000                          .ORG   0   
+0000   31 00 00               LD   SP,STACK_TOP   
+0003   CD 22 00               CALL   INIT_DATA   
+0006   ED 5E                  IM   2   ; interrupt mode 2
+0008   3E 7F                  LD   A,msb(VECT_BASE)   
+000A   ED 47                  LD   I,A   
+000C   CD 2E 00               CALL   SIO_INIT   
+000F   FB                     EI      ; enable interrupts
+0010                             ; print (roughly) every second
+0010   06 00        L0:       LD   B,0   ; (7)
+0012   3E 00        L1:       LD   A,0   ; (7)
+0014   3D           L2:       DEC   A   ; (4)
+0015   20 FD                  JR   NZ,L2   ;(7,12)
+0017   05                     DEC   B   ; (4)
+0018   20 F8                  JR   NZ,L1   ;(7,12)
+001A   11 06 01               LD   DE,MSG   
+001D   CD 65 00               CALL   SIO_SEND   
+0020   18 EE                  JR   L0   
+0022   01 05 02     INIT_DATA:   LD   BC,INIT_LEN   
+0025   11 00 80               LD   DE,DATA   
+0028   21 16 01               LD   HL,INIT_START   
+002B   ED B0                  LDIR      
+002D   C9                     RET      
+002E                CTC_0:    EQU   0x40   
+002E                CTC_1:    EQU   0x41   
+002E                CTC_2:    EQU   0x42   
+002E                CTC_3:    EQU   0x43   
+002E                SIO_DATA_A:   EQU   0x80   
+002E                SIO_DATA_B:   EQU   0x81   
+002E                SIO_CTRL_A:   EQU   0x82   
+002E                SIO_CTRL_B:   EQU   0x83   
+002E                PIO_DATA_A:   EQU   0xC0   
+002E                PIO_DATA_B:   EQU   0xC1   
+002E                PIO_CTRL_A:   EQU   0xC2   
+002E                PIO_CTRL_B:   EQU   0xC3   
+002E                VECT_BASE:   EQU   0x7F00   
+002E                RAM_BASE:   EQU   0x8000   
+002E                RAM_SIZE:   EQU   0x8000   
+002E                STACK_TOP:   EQU   (RAM_BASE + RAM_SIZE) & 0xFFFF   
+002E                             ;-----------------------------------------------------------------------------
+002E                             ; Requires:
+002E                             ; SIO_CTRL_A, SIO_CTRL_B, SIO_DATA_A, SIO_DATA_B
+002E                             ; VECT_SIO
+002E                             ; TX_BUF, TX_PUT, TX_GET, TX_FLAGS
+002E                             ;-----------------------------------------------------------------------------
+002E                             ; Provides:
+002E                             ; SIO_INIT
+002E                             ; SIO_SEND
+002E                             ; SIO_TX
+002E                             ; SIO_RX
+002E                             ;-----------------------------------------------------------------------------
+002E                             ; SIO_INIT - initialize SIO
+002E                             ; Initialize channel A (only) for async.
+002E                SIO_INIT:      
+002E                             ; reset both channels
+002E   3E 18                  LD   A,0x18   
+0030   D3 82                  OUT   (SIO_CTRL_A),A   
+0032   D3 83                  OUT   (SIO_CTRL_B),A   
+0034                             ; 
+0034                             ; channel B: common stuff
+0034                             ; 
+0034                             ; WR1
+0034                             ; -----1-- status affects vector
+0034   3E 01                  LD   A,1   
+0036   D3 83                  OUT   (SIO_CTRL_B),A   
+0038   3E 04                  LD   A,00000100b   
+003A   D3 83                  OUT   (SIO_CTRL_B),A   
+003C                             ; 
+003C                             ; WR2
+003C                             ; interrupt vector
+003C   3E 02                  LD   A,2   
+003E   D3 83                  OUT   (SIO_CTRL_B),A   
+0040   3E 10                  LD   A,lsb(VECT_SIO)   
+0042   D3 83                  OUT   (SIO_CTRL_B),A   
+0044                             ; 
+0044                             ; channel A
+0044                             ; 
+0044                             ; WR4
+0044                             ; 01------ 16x
+0044                             ; 10------ 32x
+0044                             ; 11------ 64x
+0044                             ; ----01-- 1 stop
+0044                             ; ----10-- 1.5 stop
+0044                             ; ----11-- 2 stop
+0044   3E 04                  LD   A,4   
+0046   D3 82                  OUT   (SIO_CTRL_A),A   
+0048   3E 84                  LD   A,10000100b   
+004A   D3 82                  OUT   (SIO_CTRL_A),A   
+004C                             ; 
+004C                             ; WR3
+004C                             ; 11------ rx 8 bits/char
+004C                             ; -------1 rx enable
+004C   3E 03                  LD   A,3   
+004E   D3 82                  OUT   (SIO_CTRL_A),A   
+0050   3E C1                  LD   A,11000001b   
+0052   D3 82                  OUT   (SIO_CTRL_A),A   
+0054                             ; 
+0054                             ; WR5
+0054                             ; -11----- tx 8 bits/chr
+0054                             ; ----1--- tx enable
+0054   3E 05                  LD   A,5   
+0056   D3 82                  OUT   (SIO_CTRL_A),A   
+0058   3E 68                  LD   A,01101000b   
+005A   D3 82                  OUT   (SIO_CTRL_A),A   
+005C                             ; 
+005C                             ; WR1
+005C                             ; ---11--- rx intr on char
+005C                             ; ------1- tx intr enable
+005C   3E 01                  LD   A,1   
+005E   D3 82                  OUT   (SIO_CTRL_A),A   
+0060   3E 1A                  LD   A,00011010b   
+0062   D3 82                  OUT   (SIO_CTRL_A),A   
+0064                             ; 
+0064   C9                     RET      
+0065                             ;-----------------------------------------------------------------------------
+0065                             ; SIO_SEND - send an EOS-terminated string
+0065                             ; The string is copied to the send buffer, then the transmitter is started
+0065                             ; if necessary. If there is not enough room in the send buffer, new data
+0065                             ; overwrites old data. The send buffer is assumed to be 256 bytes in size
+0065                             ; and 256-byte aligned.
+0065                             ; DE: address of the string
+0065                             ; HL: TX_BUF + TX_PUT
+0065                             ; BC: TX_BUF + TX_GET
+0065   F3           SIO_SEND:   DI      
+0066                             ; HL = TX_BUF + TX_PUT
+0066   26 80                  LD   H,msb(TX_BUF)   
+0068   3A 00 82               LD   A,(TX_PUT)   
+006B   6F                     LD   L,A   
+006C                             ; BC = TX_BUF + TX_GET
+006C   44                     LD   B,H   
+006D   3A 01 82               LD   A,(TX_GET)   
+0070   4F                     LD   C,A   
+0071                             ; copy loop
+0071   1A           SIO_SEND_0:   LD   A,(DE)   
+0072   13                     INC   DE   
+0073   A7                     AND   A   
+0074   28 09                  JR   Z,SIO_SEND_1   ; EOS found
+0076   77                     LD   (HL),A   
+0077   2C                     INC   L   ; overflow wraps
+0078                             ; compare TX_PUT, TX_GET
+0078   7D                     LD   A,L   
+0079   B9                     CP   C   
+007A   20 F5                  JR   NZ,SIO_SEND_0   
+007C                             ; TX_PUT == TX_GET - discard oldest char
+007C   0C                     INC   C   ; overflow wraps
+007D   18 F2                  JR   SIO_SEND_0   
+007F                             ; copy loop end
+007F                SIO_SEND_1:      
+007F                             ; start tx if necessary
+007F   7D                     LD   A,L   
+0080   B9                     CP   C   
+0081   28 10                  JR   Z,SIO_SEND_2   ; tx buffer empty
+0083   3A 02 82               LD   A,(TX_FLAGS)   
+0086   CB 47                  BIT   0,A   
+0088   20 09                  JR   NZ,SIO_SEND_2   ; tx already running
+008A                             ; start tx
+008A   CB C7                  SET   0,A   
+008C   32 02 82               LD   (TX_FLAGS),A   
+008F   0A                     LD   A,(BC)   
+0090   0C                     INC   C   
+0091   D3 80                  OUT   (SIO_DATA_A),A   
+0093                SIO_SEND_2:      
+0093                             ; tx running (or tx buffer empty)
+0093                             ; restore TX_PUT and TX_GET
+0093   7D                     LD   A,L   
+0094   32 00 82               LD   (TX_PUT),A   
+0097   79                     LD   A,C   
+0098   32 01 82               LD   (TX_GET),A   
+009B   FB                     EI      
+009C   C9                     RET      
+009D                             ;-----------------------------------------------------------------------------
+009D                             ; SIO_RECV - get next available character
+009D                             ; A: returned character
+009D                             ; ZF: returned set if no character available
+009D                             ; L: RX_PUT
+009D                             ; BC: RX_BUF + RX_GET
+009D   F3           SIO_RECV:   DI      
+009E   06 81                  LD   B,msb(RX_BUF)   ; (7)
+00A0   3A 04 82               LD   A,(RX_GET)   ; (13)
+00A3   4F                     LD   C,A   ; (4)
+00A4   3A 03 82               LD   A,(RX_PUT)   ; (13)
+00A7                             ; compare RX_GET, RX_PUT
+00A7   B9                     CP   C   ; (4)
+00A8   28 07                  JR   Z,SIO_RECV_0   ; (7,12) no character available (Z set)
+00AA   79                     LD   A,C   ; (4)
+00AB   3C                     INC   A   ; (4)
+00AC   32 04 82               LD   (RX_GET),A   ; (13)
+00AF   B9                     CP   C   ; (4) clear Z flag (A != C)
+00B0   0A                     LD   A,(BC)   ; (7) C is still the old RX_GET
+00B1   FB           SIO_RECV_0:   EI      
+00B2   C9                     RET      
+00B3                             ;-----------------------------------------------------------------------------
+00B3                             ; SIO_TX - SIO tx empty interrupt
+00B3   08           SIO_TX:   EX   AF,AF'   ; (4)
+00B4   D9                     EXX      ; (4)
+00B5                             ; BC = TX_BUF + TX_GET
+00B5   06 80                  LD   B,msb(TX_BUF)   ; (7)
+00B7   3A 01 82               LD   A,(TX_GET)   ; (13)
+00BA   4F                     LD   C,A   ; (4)
+00BB                             ; compare TX_GET, TX_PUT
+00BB   3A 00 82               LD   A,(TX_PUT)   ; (13)
+00BE   B9                     CP   C   ; (4)
+00BF   28 0D                  JR   Z,SIO_TX_1   ; (7,12) tx buffer empty
+00C1                             ; send next character
+00C1   0A                     LD   A,(BC)   ; (7)
+00C2   D3 80                  OUT   (SIO_DATA_A),A   ; (11)
+00C4                             ; increment TX_GET
+00C4   0C                     INC   C   ; (4) overflow wraps
+00C5   79                     LD   A,C   ; (4)
+00C6   32 01 82               LD   (TX_GET),A   ; (13)
+00C9                SIO_TX_0:      ; return
+00C9   D9                     EXX      ; (4)
+00CA   08                     EX   AF,AF'   ; (4)
+00CB   FB                     EI      ; (4)
+00CC   ED 4D                  RETI      ; (14) [121]
+00CE                             ; nothing to send - clear interrupt, clear flag, return
+00CE   3E 28        SIO_TX_1:   LD   A,0x28   ; (7) WR0: 00_101_000 reset tx intr pending
+00D0   D3 82                  OUT   (SIO_CTRL_A),A   ; (11)
+00D2   3A 02 82               LD   A,(TX_FLAGS)   ; (13)
+00D5   CB 87                  RES   0,A   ; (8)
+00D7   32 02 82               LD   (TX_FLAGS),A   ; (13)
+00DA   18 ED                  JR   SIO_TX_0   ; (12)
+00DC                             ;-----------------------------------------------------------------------------
+00DC                             ; SIO_RX - SIO rx data available interrupt
+00DC                             ; HL: RX_BUF + RX_PUT
+00DC                             ; C: RX_GET
+00DC   08           SIO_RX:   EX   AF,AF'   ; (4)
+00DD   D9                     EXX      ; (4)
+00DE                             ; HL = RX_BUF + RX_PUT
+00DE   26 81                  LD   H,msb(RX_BUF)   ; (7)
+00E0   3A 03 82               LD   A,(RX_PUT)   ; (13)
+00E3   6F                     LD   L,A   ; (4)
+00E4                             ; C = RX_GET
+00E4   3A 04 82               LD   A,(RX_GET)   ; (13)
+00E7   4F                     LD   C,A   ; (4)
+00E8                SIO_RX_0:      ; character available?
+00E8   DB 82                  IN   A,(SIO_CTRL_A)   ; (11)
+00EA   CB 47                  BIT   0,A   ; (8)
+00EC   28 0F                  JR   Z,SIO_RX_1   ; (7,12) no characters available
+00EE   DB 80                  IN   A,(SIO_DATA_A)   ; (11) read character
+00F0   77                     LD   (HL),A   ; (7) store in rx buffer
+00F1   2C                     INC   L   ; (4) increment RX_PUT
+00F2                             ; compare RX_PUT, RX_GET
+00F2   79                     LD   A,C   ; (4)
+00F3   BD                     CP   L   ; (4)
+00F4   20 F2                  JR   NZ,SIO_RX_0   ; (7,12) not equal
+00F6                             ; RX_PUT == RX_GET
+00F6   0C                     INC   C   ; (4) discard oldest data
+00F7   79                     LD   A,C   ; (4)
+00F8   32 04 82               LD   (RX_GET),A   ; (13)
+00FB   18 EB                  JR   SIO_RX_0   ; (12)
+00FD                SIO_RX_1:      ; done; save RX_PUT
+00FD   7D                     LD   A,L   ; (4) RX_PUT
+00FE   32 03 82               LD   (RX_PUT),A   ; (13)
+0101   D9                     EXX      ; (4)
+0102   08                     EX   AF,AF'   ; (4)
+0103   FB                     EI      ; (4)
+0104   ED 4D                  RETI      ; (14)
+0106   48 65 6C 6C 6F 2C 20 77 6F 72 6C 64 21 0D 0A 00 MSG:   DB   "Hello, world!\r\n",0   
+0116                DATA:     EQU   0x8000   
+0116                INIT_START:   .PHASE   DATA   
+8000 @0116          TX_LEN:   EQU   256   
+8000 @0116                    ALIGN   TX_LEN   
+8000 @0116          TX_BUF:   DS   TX_LEN   
+8100 @0216          RX_LEN:   EQU   256   
+8100 @0216                    ALIGN   RX_LEN   
+8100 @0216          RX_BUF:   DS   RX_LEN   
+8200 @0316   00     TX_PUT:   DB   0   
+8201 @0317   00     TX_GET:   DB   0   
+8202 @0318   00     TX_FLAGS:   DB   0   
+8203 @0319   00     RX_PUT:   DB   0   
+8204 @031A   00     RX_GET:   DB   0   
+8205 @031B                    .DEPHASE      
+031B                INIT_END:      
+031B                INIT_LEN:   EQU   INIT_END - INIT_START   
+7F00                          .ORG   VECT_BASE   
+7F00   00 00                  DW   0   ; CTC0
+7F02   00 00                  DW   0   ; CTC1
+7F04   00 00                  DW   0   ; CTC2
+7F06   00 00                  DW   0   ; CTC3
+7F08                          ALIGN   16   
+7F10                VECT_SIO:   EQU   $   
+7F10   00 00                  DW   0   ; SIO_B_TX
+7F12   00 00                  DW   0   ; SIO_B_STAT
+7F14   00 00                  DW   0   ; SIO_B_RX
+7F16   00 00                  DW   0   ; SIO_B_SPEC
+7F18   B3 00                  DW   SIO_TX   
+7F1A   00 00                  DW   0   ; SIO_A_STAT
+7F1C   DC 00                  DW   SIO_RX   
+7F1E   00 00                  DW   0   ; SIO_A_SPEC
+
+
+L0:                 0010 DEFINED AT LINE 11
+                    > USED AT LINE 19
+L1:                 0012 DEFINED AT LINE 12
+                    > USED AT LINE 16
+L2:                 0014 DEFINED AT LINE 13
+                    > USED AT LINE 14
+INIT_DATA:          0022 DEFINED AT LINE 21
+                    > USED AT LINE 4
+CTC_0:              0040 DEFINED AT LINE 1 IN system.z80
+CTC_1:              0041 DEFINED AT LINE 2 IN system.z80
+CTC_2:              0042 DEFINED AT LINE 3 IN system.z80
+CTC_3:              0043 DEFINED AT LINE 4 IN system.z80
+SIO_DATA_A:         0080 DEFINED AT LINE 6 IN system.z80
+                    > USED AT LINE 125 IN sio_intr.z80
+                    > USED AT LINE 172 IN sio_intr.z80
+                    > USED AT LINE 207 IN sio_intr.z80
+SIO_DATA_B:         0081 DEFINED AT LINE 7 IN system.z80
+SIO_CTRL_A:         0082 DEFINED AT LINE 8 IN system.z80
+                    > USED AT LINE 20 IN sio_intr.z80
+                    > USED AT LINE 49 IN sio_intr.z80
+                    > USED AT LINE 51 IN sio_intr.z80
+                    > USED AT LINE 57 IN sio_intr.z80
+                    > USED AT LINE 59 IN sio_intr.z80
+                    > USED AT LINE 65 IN sio_intr.z80
+                    > USED AT LINE 67 IN sio_intr.z80
+                    > USED AT LINE 73 IN sio_intr.z80
+                    > USED AT LINE 75 IN sio_intr.z80
+                    > USED AT LINE 184 IN sio_intr.z80
+                    > USED AT LINE 204 IN sio_intr.z80
+SIO_CTRL_B:         0083 DEFINED AT LINE 9 IN system.z80
+                    > USED AT LINE 21 IN sio_intr.z80
+                    > USED AT LINE 28 IN sio_intr.z80
+                    > USED AT LINE 30 IN sio_intr.z80
+                    > USED AT LINE 35 IN sio_intr.z80
+                    > USED AT LINE 37 IN sio_intr.z80
+PIO_DATA_A:         00C0 DEFINED AT LINE 11 IN system.z80
+PIO_DATA_B:         00C1 DEFINED AT LINE 12 IN system.z80
+PIO_CTRL_A:         00C2 DEFINED AT LINE 13 IN system.z80
+PIO_CTRL_B:         00C3 DEFINED AT LINE 14 IN system.z80
+VECT_BASE:          7F00 DEFINED AT LINE 16 IN system.z80
+                    > USED AT LINE 54
+RAM_BASE:           8000 DEFINED AT LINE 17 IN system.z80
+                    > USED AT LINE 19 IN system.z80
+RAM_SIZE:           8000 DEFINED AT LINE 18 IN system.z80
+                    > USED AT LINE 19 IN system.z80
+STACK_TOP:          0000 DEFINED AT LINE 19 IN system.z80
+                    > USED AT LINE 3
+SIO_INIT:           002E DEFINED AT LINE 17 IN sio_intr.z80
+                    > USED AT LINE 8
+SIO_SEND:           0065 DEFINED AT LINE 88 IN sio_intr.z80
+                    > USED AT LINE 18
+SIO_SEND_0:         0071 DEFINED AT LINE 98 IN sio_intr.z80
+                    > USED AT LINE 107 IN sio_intr.z80
+                    > USED AT LINE 110 IN sio_intr.z80
+SIO_SEND_1:         007F DEFINED AT LINE 112 IN sio_intr.z80
+                    > USED AT LINE 101 IN sio_intr.z80
+SIO_SEND_2:         0093 DEFINED AT LINE 126 IN sio_intr.z80
+                    > USED AT LINE 116 IN sio_intr.z80
+                    > USED AT LINE 119 IN sio_intr.z80
+SIO_RECV:           009D DEFINED AT LINE 142 IN sio_intr.z80
+SIO_RECV_0:         00B1 DEFINED AT LINE 155 IN sio_intr.z80
+                    > USED AT LINE 149 IN sio_intr.z80
+SIO_TX:             00B3 DEFINED AT LINE 160 IN sio_intr.z80
+                    > USED AT LINE 65
+SIO_TX_0:           00C9 DEFINED AT LINE 177 IN sio_intr.z80
+                    > USED AT LINE 188 IN sio_intr.z80
+SIO_TX_1:           00CE DEFINED AT LINE 183 IN sio_intr.z80
+                    > USED AT LINE 169 IN sio_intr.z80
+SIO_RX:             00DC DEFINED AT LINE 194 IN sio_intr.z80
+                    > USED AT LINE 67
+SIO_RX_0:           00E8 DEFINED AT LINE 203 IN sio_intr.z80
+                    > USED AT LINE 213 IN sio_intr.z80
+                    > USED AT LINE 218 IN sio_intr.z80
+SIO_RX_1:           00FD DEFINED AT LINE 219 IN sio_intr.z80
+                    > USED AT LINE 206 IN sio_intr.z80
+MSG:                0106 DEFINED AT LINE 30
+                    > USED AT LINE 17
+DATA:               8000 DEFINED AT LINE 32
+                    > USED AT LINE 22
+                    > USED AT LINE 33
+INIT_START:         0116 DEFINED AT LINE 33
+                    > USED AT LINE 23
+                    > USED AT LINE 52
+TX_LEN:             0100 DEFINED AT LINE 35
+                    > USED AT LINE 36
+                    > USED AT LINE 37
+TX_BUF:             8000 DEFINED AT LINE 37
+RX_LEN:             0100 DEFINED AT LINE 39
+                    > USED AT LINE 40
+                    > USED AT LINE 41
+RX_BUF:             8100 DEFINED AT LINE 41
+TX_PUT:             8200 DEFINED AT LINE 43
+                    > USED AT LINE 91 IN sio_intr.z80
+                    > USED AT LINE 130 IN sio_intr.z80
+                    > USED AT LINE 167 IN sio_intr.z80
+TX_GET:             8201 DEFINED AT LINE 44
+                    > USED AT LINE 95 IN sio_intr.z80
+                    > USED AT LINE 132 IN sio_intr.z80
+                    > USED AT LINE 164 IN sio_intr.z80
+                    > USED AT LINE 176 IN sio_intr.z80
+TX_FLAGS:           8202 DEFINED AT LINE 45
+                    > USED AT LINE 117 IN sio_intr.z80
+                    > USED AT LINE 122 IN sio_intr.z80
+                    > USED AT LINE 185 IN sio_intr.z80
+                    > USED AT LINE 187 IN sio_intr.z80
+RX_PUT:             8203 DEFINED AT LINE 47
+                    > USED AT LINE 146 IN sio_intr.z80
+                    > USED AT LINE 198 IN sio_intr.z80
+                    > USED AT LINE 221 IN sio_intr.z80
+RX_GET:             8204 DEFINED AT LINE 48
+                    > USED AT LINE 144 IN sio_intr.z80
+                    > USED AT LINE 152 IN sio_intr.z80
+                    > USED AT LINE 201 IN sio_intr.z80
+                    > USED AT LINE 217 IN sio_intr.z80
+INIT_END:           031B DEFINED AT LINE 51
+                    > USED AT LINE 52
+INIT_LEN:           0205 DEFINED AT LINE 52
+                    > USED AT LINE 21
+VECT_SIO:           7F10 DEFINED AT LINE 60
