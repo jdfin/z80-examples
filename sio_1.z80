@@ -1,0 +1,68 @@
+            .ORG    0 
+
+            LD      SP,STACK_TOP
+            CALL    INIT_DATA 
+            IM      2 ; interrupt mode 2
+            LD      A,msb(VECT_BASE) 
+            LD      I,A 
+            CALL    SIO_INIT 
+            EI       ; enable interrupts
+; print (roughly) every second
+L0:         LD      B,0 ; (7)
+L1:         LD      A,0 ; (7)
+L2:         DEC     A ; (4)
+            JR      NZ,L2 ;(7,12)
+            DEC     B ; (4)
+            JR      NZ,L1 ;(7,12)
+            LD      DE,MSG 
+            CALL    SIO_SEND 
+            JR      L0 
+
+INIT_DATA:  LD      BC,INIT_LEN 
+            LD      DE,DATA 
+            LD      HL,INIT_START 
+            LDIR     
+            RET      
+
+            .INCLUDE system.z80 
+            .INCLUDE sio_intr.z80 
+
+MSG:        DB      "Hello, world!\r\n",0 
+
+DATA        EQU     0x8000 
+INIT_START: .PHASE  DATA 
+
+TX_LEN      EQU     256 
+            ALIGN   TX_LEN 
+TX_BUF:     DS      TX_LEN 
+
+RX_LEN      EQU     256 
+            ALIGN   RX_LEN 
+RX_BUF:     DS      RX_LEN 
+
+TX_PUT:     DB      0 
+TX_GET:     DB      0 
+TX_FLAGS:   DB      0 
+
+RX_PUT:     DB      0 
+RX_GET:     DB      0 
+
+            .DEPHASE  
+INIT_END:            
+INIT_LEN    EQU     INIT_END - INIT_START 
+
+            .ORG    VECT_BASE 
+            DW      0 ; CTC0
+            DW      0 ; CTC1
+            DW      0 ; CTC2
+            DW      0 ; CTC3
+            ALIGN   16 
+VECT_SIO    EQU     $ 
+            DW      0 ; SIO_B_TX
+            DW      0 ; SIO_B_STAT
+            DW      0 ; SIO_B_RX
+            DW      0 ; SIO_B_SPEC
+            DW      SIO_TX 
+            DW      0 ; SIO_A_STAT
+            DW      SIO_RX 
+            DW      0 ; SIO_A_SPEC

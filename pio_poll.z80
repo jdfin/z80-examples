@@ -1,0 +1,43 @@
+;-----------------------------------------------------------------------------
+; Requires:
+; PIO_CTRL_A, PIO_DATA_A
+; 
+; Provides:
+; PIO_INIT, PIO_OUT, PIO_IN
+
+;-----------------------------------------------------------------------------
+; void PIO_INIT(uint8_t dirs, uint8_t vals)
+; dirs is in A, vals is in L
+; H is scratch
+; dirs is used to set pin direction; 0 is out, 1 is in
+; vals is used to set initial values for output pins
+PIO_INIT:            
+            LD      H,A ; stash dir
+; --------- set mode: ----1111
+; --------- control:  11------
+            LD      A,11001111b 
+            OUT     (PIO_CTRL_A),A 
+; --------- next byte is direction
+            LD      A,H 
+            OUT     (PIO_CTRL_A),A 
+; --------- set initial values
+            LD      A,L 
+            OUT     (PIO_DATA_A),A 
+; --------- no interrupts
+            LD      A,0x07 
+            OUT     (PIO_CTRL_A),A 
+            RET      
+
+;-----------------------------------------------------------------------------
+; void PIO_OUT(uint8_t vals)
+; vals is in A
+PIO_OUT:    .MACRO   
+            OUT     (PIO_DATA_A),A 
+            .ENDM    
+
+;-----------------------------------------------------------------------------
+; uint8_t PIO_IN()
+; vals is returned in A
+PIO_IN:     .MACRO   
+            IN      A,(PIO_DATA_A) 
+            .ENDM    

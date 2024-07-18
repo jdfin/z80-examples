@@ -1,0 +1,89 @@
+;-----------------------------------------------------------------------------
+; Requires:
+; SIO_CTRL_A, SIO_CTRL_B, SIO_DATA_A, SIO_DATA_B
+
+;-----------------------------------------------------------------------------
+; Provides:
+; SIO_INIT
+; SIO_PUTC
+; SIO_PUTS
+; SIO_GETC
+
+;-----------------------------------------------------------------------------
+; SIO_INIT - initialize SIO
+; Initialize channel A (only) for async, polled mode.
+SIO_INIT:            
+; reset both channels
+            LD      A,0x18 
+            OUT     (SIO_CTRL_A),A 
+            OUT     (SIO_CTRL_B),A 
+; WR4
+; 01------ 16x
+; 10------ 32x
+; 11------ 64x
+; ----01-- 1 stop
+; ----10-- 1.5 stop
+; ----11-- 2 stop
+            LD      A,4 
+            OUT     (SIO_CTRL_A),A 
+            LD      A,10000100b 
+            OUT     (SIO_CTRL_A),A 
+; 
+; WR3
+; 11------ rx 8 bits/char
+; -------1 rx enable
+            LD      A,3 
+            OUT     (SIO_CTRL_A),A 
+            LD      A,11000001b 
+            OUT     (SIO_CTRL_A),A 
+; 
+; WR5
+; -11----- tx 8 bits/chr
+; ----1--- tx enable
+            LD      A,5 
+            OUT     (SIO_CTRL_A),A 
+            LD      A,01101000b 
+            OUT     (SIO_CTRL_A),A 
+; 
+; WR1
+; ---11--- rx intr on char
+; ------1- tx intr enable
+            LD      A,1 
+            OUT     (SIO_CTRL_A),A 
+            LD      A,00000000b 
+            OUT     (SIO_CTRL_A),A 
+; 
+            RET      
+
+;-----------------------------------------------------------------------------
+; SIO_PUTC - send a character
+; A: character to send
+; B: scratch
+SIO_PUTC:   LD      B,A ; (4) stash character
+SIO_PUTC_0: IN      A,(SIO_CTRL_A) ; (11)
+            BIT     2,A ; (8)
+            JR      Z,SIO_PUTC_0 ; (7,12) wait for tx idle
+            LD      A,B ; (4)
+            OUT     (SIO_DATA_A),A ; (11) send character
+            RET      ; (10)
+
+;-----------------------------------------------------------------------------
+; SIO_PUTS - send an EOS-terminated string
+; DE: address of the string (modified)
+; A: scratch
+; B: scratch
+SIO_PUTS:   LD      A,(DE) 
+            AND     A 
+            RET     Z 
+            CALL    SIO_PUTC 
+            INC     DE 
+            JR      SIO_PUTS 
+
+;-----------------------------------------------------------------------------
+; SIO_GETC - wait for and get next available character
+; A: returned character
+SIO_GETC:   IN      A,(SIO_CTRL_A) ; (11)
+            BIT     0,A ; (8)
+            JR      Z,SIO_GETC ; (7,12) wait for character available
+            IN      A,(SIO_DATA_A) ; (11) get character
+            RET      ; (10)

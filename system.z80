@@ -1,0 +1,19 @@
+CTC_0       EQU     0x40 
+CTC_1       EQU     0x41 
+CTC_2       EQU     0x42 
+CTC_3       EQU     0x43 
+
+SIO_DATA_A  EQU     0x80 
+SIO_DATA_B  EQU     0x81 
+SIO_CTRL_A  EQU     0x82 
+SIO_CTRL_B  EQU     0x83 
+
+PIO_DATA_A  EQU     0xC0 
+PIO_DATA_B  EQU     0xC1 
+PIO_CTRL_A  EQU     0xC2 
+PIO_CTRL_B  EQU     0xC3
+
+VECT_BASE   EQU     0x7F00
+RAM_BASE    EQU     0x8000
+RAM_SIZE    EQU     0x8000
+STACK_TOP   EQU     (RAM_BASE + RAM_SIZE) & 0xFFFF

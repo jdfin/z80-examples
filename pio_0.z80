@@ -1,0 +1,22 @@
+            .ORG    0 
+
+            LD      SP,STACK_TOP
+            LD      A,00000000b ; dirs, all out
+            LD      L,00000000b ; vals
+            CALL    PIO_INIT 
+            LD      A,0x00 ; (7)
+L0:         LD      B,25 ; (7)
+LB:         LD      C,250 ; (7)
+LC:         DEC     C ; (4)
+            JR      NZ,LC ; (7,12)
+            DEC     B ; (4)
+            JR      NZ,LB ; (7,12)
+            PIO_OUT ; (11)
+            INC     A ; (4)
+            JR      L0 ; (12)
+
+            .INCLUDE system.z80
+            .INCLUDE pio_poll.z80 
+
+; C-loop: 250 * 16 = 4000 usec = 4 msec
+; B-loop: 25 * 4 msec = 0.1 sec

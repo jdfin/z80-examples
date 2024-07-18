@@ -1,0 +1,17 @@
+            .ORG    0 
+
+            LD      SP,STACK_TOP
+            CALL    SIO_INIT 
+
+            LD      DE,MSG 
+            CALL    SIO_PUTS 
+
+; echo characters
+L0:         CALL    SIO_GETC 
+            CALL    SIO_PUTC 
+            JR      L0 
+
+MSG:        DB      "Hello, world!\r\n",0 
+
+            .INCLUDE system.z80 
+            .INCLUDE sio_poll.z80 

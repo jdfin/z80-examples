@@ -1,0 +1,16 @@
+CTC_0       EQU     0x40 
+CTC_1       EQU     0x41 
+CTC_2       EQU     0x42 
+CTC_3       EQU     0x43 
+
+            .ORG    0 
+
+            LD      SP,0 
+            CALL    CTC_INIT 
+L0:         JR      L0 
+
+CTC_INIT:   LD      A,0x15 ; no int, timer, ps=16, rising edge, auto start
+            OUT     (CTC_2),A 
+            LD      A,125 ; 500 Hz at TO pin
+            OUT     (CTC_2),A 
+            RET

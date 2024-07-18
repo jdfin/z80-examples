@@ -1,0 +1,46 @@
+            .ORG    0 
+
+            LD      SP,STACK_TOP 
+            IM      2 ; interrupt mode 2
+            LD      A,msb(VECT_BASE) 
+            LD      I,A 
+            CALL    CTC_INIT
+            LD      A,00000000b ; dirs, all out
+            LD      L,00000000b ; vals
+            CALL    PIO_INIT ; (A, L)
+            LD      A,0 
+            EI
+L0:         HALT     
+            JR      L0 
+
+CTC_INIT:            
+; CTC0 contains interrupt vector
+            LD      A,lsb(VECT_CTC) 
+            OUT     (CTC_0),A 
+; CTC2 generates 500 Hz on its TO pin
+            LD      A,0x15 ; no intr, timer, ps=16, rising edge, auto start
+            OUT     (CTC_2),A 
+            LD      A,125 ; 500 Hz
+            OUT     (CTC_2),A 
+; CTC3 divides that to generate periodic interrupt
+            LD      A,0xD5 ; intr, counter, rising edge, auto start
+            OUT     (CTC_3),A 
+            LD      A,100 ; 5 Hz
+            OUT     (CTC_3),A 
+            RET      
+
+CTC_3_ISR:  PIO_OUT 
+            INC     A 
+            EI       
+            RETI     
+
+            .INCLUDE system.z80 
+            .INCLUDE pio_poll.z80 
+
+            .ORG    VECT_BASE 
+            DW      0 
+            ALIGN   8 
+VECT_CTC:   DW      0 ; CTC0
+            DW      0 ; CTC1
+            DW      0 ; CTC2
+            DW      CTC_3_ISR 

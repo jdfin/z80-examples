@@ -1,0 +1,225 @@
+;-----------------------------------------------------------------------------
+; Requires:
+; SIO_CTRL_A, SIO_CTRL_B, SIO_DATA_A, SIO_DATA_B
+; VECT_SIO
+; TX_BUF, TX_PUT, TX_GET, TX_FLAGS
+
+;-----------------------------------------------------------------------------
+; Provides:
+; SIO_INIT
+; SIO_SEND
+; SIO_TX
+; SIO_RX
+
+;-----------------------------------------------------------------------------
+; SIO_INIT - initialize SIO
+; Initialize channel A (only) for async.
+SIO_INIT:            
+; reset both channels
+            LD      A,0x18 
+            OUT     (SIO_CTRL_A),A 
+            OUT     (SIO_CTRL_B),A 
+; 
+; channel B: common stuff
+; 
+; WR1
+; -----1-- status affects vector
+            LD      A,1 
+            OUT     (SIO_CTRL_B),A 
+            LD      A,00000100b 
+            OUT     (SIO_CTRL_B),A 
+; 
+; WR2
+; interrupt vector
+            LD      A,2 
+            OUT     (SIO_CTRL_B),A 
+            LD      A,lsb(VECT_SIO) 
+            OUT     (SIO_CTRL_B),A 
+; 
+; channel A
+; 
+; WR4
+; 01------ 16x
+; 10------ 32x
+; 11------ 64x
+; ----01-- 1 stop
+; ----10-- 1.5 stop
+; ----11-- 2 stop
+            LD      A,4 
+            OUT     (SIO_CTRL_A),A 
+            LD      A,10000100b 
+            OUT     (SIO_CTRL_A),A 
+; 
+; WR3
+; 11------ rx 8 bits/char
+; -------1 rx enable
+            LD      A,3 
+            OUT     (SIO_CTRL_A),A 
+            LD      A,11000001b 
+            OUT     (SIO_CTRL_A),A 
+; 
+; WR5
+; -11----- tx 8 bits/chr
+; ----1--- tx enable
+            LD      A,5 
+            OUT     (SIO_CTRL_A),A 
+            LD      A,01101000b 
+            OUT     (SIO_CTRL_A),A 
+; 
+; WR1
+; ---11--- rx intr on char
+; ------1- tx intr enable
+            LD      A,1 
+            OUT     (SIO_CTRL_A),A 
+            LD      A,00011010b 
+            OUT     (SIO_CTRL_A),A 
+; 
+            RET      
+
+;-----------------------------------------------------------------------------
+; SIO_SEND - send an EOS-terminated string
+; The string is copied to the send buffer, then the transmitter is started
+; if necessary. If there is not enough room in the send buffer, new data
+; overwrites old data. The send buffer is assumed to be 256 bytes in size
+; and 256-byte aligned.
+; DE: address of the string
+; HL: TX_BUF + TX_PUT
+; BC: TX_BUF + TX_GET
+SIO_SEND:   DI       
+; HL = TX_BUF + TX_PUT
+            LD      H,msb(TX_BUF) 
+            LD      A,(TX_PUT) 
+            LD      L,A 
+; BC = TX_BUF + TX_GET
+            LD      B,H 
+            LD      A,(TX_GET) 
+            LD      C,A 
+; copy loop
+SIO_SEND_0: LD      A,(DE) 
+            INC     DE 
+            AND     A 
+            JR      Z,SIO_SEND_1 ; EOS found
+            LD      (HL),A 
+            INC     L ; overflow wraps
+; compare TX_PUT, TX_GET
+            LD      A,L 
+            CP      C 
+            JR      NZ,SIO_SEND_0 
+; TX_PUT == TX_GET - discard oldest char
+            INC     C ; overflow wraps
+            JR      SIO_SEND_0 
+; copy loop end
+SIO_SEND_1:          
+; start tx if necessary
+            LD      A,L 
+            CP      C 
+            JR      Z,SIO_SEND_2 ; tx buffer empty
+            LD      A,(TX_FLAGS) 
+            BIT     0,A 
+            JR      NZ,SIO_SEND_2 ; tx already running
+; start tx
+            SET     0,A 
+            LD      (TX_FLAGS),A 
+            LD      A,(BC) 
+            INC     C 
+            OUT     (SIO_DATA_A),A 
+SIO_SEND_2:          
+; tx running (or tx buffer empty)
+; restore TX_PUT and TX_GET
+            LD      A,L 
+            LD      (TX_PUT),A 
+            LD      A,C 
+            LD      (TX_GET),A 
+            EI       
+            RET      
+
+;-----------------------------------------------------------------------------
+; SIO_RECV - get next available character
+; A: returned character
+; ZF: returned set if no character available
+; L: RX_PUT
+; BC: RX_BUF + RX_GET
+SIO_RECV:   DI       
+            LD      B,msb(RX_BUF) ; (7)
+            LD      A,(RX_GET) ; (13)
+            LD      C,A ; (4)
+            LD      A,(RX_PUT) ; (13)
+; compare RX_GET, RX_PUT
+            CP      C ; (4)
+            JR      Z,SIO_RECV_0 ; (7,12) no character available (Z set)
+            LD      A,C ; (4)
+            INC     A ; (4)
+            LD      (RX_GET),A ; (13)
+            CP      C ; (4) clear Z flag (A != C)
+            LD      A,(BC) ; (7) C is still the old RX_GET
+SIO_RECV_0: EI       
+            RET      
+
+;-----------------------------------------------------------------------------
+; SIO_TX - SIO tx empty interrupt
+SIO_TX:     EX      AF,AF' ; (4)
+            EXX      ; (4)
+; BC = TX_BUF + TX_GET
+            LD      B,msb(TX_BUF) ; (7)
+            LD      A,(TX_GET) ; (13)
+            LD      C,A ; (4)
+; compare TX_GET, TX_PUT
+            LD      A,(TX_PUT) ; (13)
+            CP      C ; (4)
+            JR      Z,SIO_TX_1 ; (7,12) tx buffer empty
+; send next character
+            LD      A,(BC) ; (7)
+            OUT     (SIO_DATA_A),A ; (11)
+; increment TX_GET
+            INC     C ; (4) overflow wraps
+            LD      A,C ; (4)
+            LD      (TX_GET),A ; (13)
+SIO_TX_0:            ; return
+            EXX      ; (4)
+            EX      AF,AF' ; (4)
+            EI       ; (4)
+            RETI     ; (14) [121]
+; nothing to send - clear interrupt, clear flag, return
+SIO_TX_1:   LD      A,0x28 ; (7) WR0: 00_101_000 reset tx intr pending
+            OUT     (SIO_CTRL_A),A ; (11)
+            LD      A,(TX_FLAGS) ; (13)
+            RES     0,A ; (8)
+            LD      (TX_FLAGS),A ; (13)
+            JR      SIO_TX_0 ; (12)
+
+;-----------------------------------------------------------------------------
+; SIO_RX - SIO rx data available interrupt
+; HL: RX_BUF + RX_PUT
+; C: RX_GET
+SIO_RX:     EX      AF,AF' ; (4)
+            EXX      ; (4)
+; HL = RX_BUF + RX_PUT
+            LD      H,msb(RX_BUF) ; (7)
+            LD      A,(RX_PUT) ; (13)
+            LD      L,A ; (4)
+; C = RX_GET
+            LD      A,(RX_GET) ; (13)
+            LD      C,A ; (4)
+SIO_RX_0:            ; character available?
+            IN      A,(SIO_CTRL_A) ; (11)
+            BIT     0,A ; (8)
+            JR      Z,SIO_RX_1 ; (7,12) no characters available
+            IN      A,(SIO_DATA_A) ; (11) read character
+            LD      (HL),A ; (7) store in rx buffer
+            INC     L ; (4) increment RX_PUT
+; compare RX_PUT, RX_GET
+            LD      A,C ; (4)
+            CP      L ; (4)
+            JR      NZ,SIO_RX_0 ; (7,12) not equal
+; RX_PUT == RX_GET
+            INC     C ; (4) discard oldest data
+            LD      A,C ; (4)
+            LD      (RX_GET),A ; (13)
+            JR      SIO_RX_0 ; (12)
+SIO_RX_1:            ; done; save RX_PUT
+            LD      A,L ; (4) RX_PUT
+            LD      (RX_PUT),A ; (13)
+            EXX      ; (4)
+            EX      AF,AF' ; (4)
+            EI       ; (4)
+            RETI     ; (14)
